@@ -1,0 +1,289 @@
+name: Release packages
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "v-prefixed release version, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - id: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb appimage
+          - id: linux-arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: deb appimage
+
+    env:
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      RDC_AUTH_BASE_URL: ${{ vars.RDC_AUTH_BASE_URL }}
+      RDC_AUTH_EXECUTION_RELEASE_URL: ${{ vars.RDC_AUTH_EXECUTION_RELEASE_URL || format('{0}/v1/execution-grants/release', vars.RDC_AUTH_BASE_URL) }}
+      RDC_AUTH_PUBLIC_KEYS: ${{ vars.RDC_AUTH_PUBLIC_KEYS }}
+      TARGET_TRIPLE: ${{ matrix.target }}
+      TAURI_BUNDLES: ${{ matrix.bundles }}
+      PLATFORM_ID: ${{ matrix.id }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: startsWith(matrix.id, 'linux-')
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Install from lockfile
+        shell: bash
+        if: startsWith(matrix.id, 'linux-')
+        run: npm ci --ignore-scripts
+
+      - name: Install from lockfile
+        shell: pwsh
+        if: matrix.id == 'windows-x64'
+        run: npm ci --ignore-scripts
+
+      - name: Validate release version
+        shell: bash
+        if: startsWith(matrix.id, 'linux-')
+        run: node scripts/check-release-version.mjs "$RELEASE_VERSION"
+
+      - name: Validate release version
+        shell: pwsh
+        if: matrix.id == 'windows-x64'
+        run: node scripts/check-release-version.mjs "$env:RELEASE_VERSION"
+
+      - name: Validate release authorization configuration
+        shell: bash
+        if: startsWith(matrix.id, 'linux-')
+        run: |
+          test -n "$RDC_AUTH_BASE_URL" || { echo "RDC_AUTH_BASE_URL repository variable is required for a usable release build."; exit 1; }
+          test -n "$RDC_AUTH_EXECUTION_RELEASE_URL" || { echo "RDC_AUTH_EXECUTION_RELEASE_URL repository variable is required for a usable release build."; exit 1; }
+          test -n "$RDC_AUTH_PUBLIC_KEYS" || { echo "RDC_AUTH_PUBLIC_KEYS repository variable is required for a usable release build."; exit 1; }
+          test -z "${RDC_AUTH_SIGNING_KEY:-}" || { echo "The server signing key must never be present in the desktop release job."; exit 1; }
+
+      - name: Validate release authorization configuration
+        shell: pwsh
+        if: matrix.id == 'windows-x64'
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RDC_AUTH_BASE_URL)) {
+            throw "RDC_AUTH_BASE_URL repository variable is required for a usable release build."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RDC_AUTH_EXECUTION_RELEASE_URL)) {
+            throw "RDC_AUTH_EXECUTION_RELEASE_URL repository variable is required for a usable release build."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RDC_AUTH_PUBLIC_KEYS)) {
+            throw "RDC_AUTH_PUBLIC_KEYS repository variable is required for a usable release build."
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:RDC_AUTH_SIGNING_KEY)) {
+            throw "The server signing key must never be present in the desktop release job."
+          }
+
+      - name: Run full test gate
+        if: matrix.id == 'windows-x64'
+        shell: pwsh
+        run: |
+          cargo test --locked --manifest-path authorization-service/Cargo.toml
+          ./scripts/test-verify-auth-rotation.ps1
+          npx tsc --noEmit
+          npx vitest run
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+          cargo test --locked --manifest-path qemu-center/Cargo.toml
+
+      - name: Run qemu-center tests
+        if: startsWith(matrix.id, 'linux-')
+        shell: bash
+        run: cargo test --locked --manifest-path qemu-center/Cargo.toml
+
+      - name: Build qemu-center and stage Windows resource
+        if: matrix.id == 'windows-x64'
+        shell: pwsh
+        run: |
+          cargo build --locked --release --manifest-path qemu-center/Cargo.toml --target $env:TARGET_TRIPLE
+          $source = Join-Path $env:GITHUB_WORKSPACE "qemu-center/target/$env:TARGET_TRIPLE/release/qemu-center.exe"
+          $destination = Join-Path $env:GITHUB_WORKSPACE "qemu-center/target/release/qemu-center.exe"
+          if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Missing target qemu-center binary: $source"
+          }
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+          Copy-Item -LiteralPath $source -Destination $destination -Force
+
+      - name: Build qemu-center and stage Linux resource
+        if: startsWith(matrix.id, 'linux-')
+        shell: bash
+        run: |
+          cargo build --locked --release --manifest-path qemu-center/Cargo.toml --target "$TARGET_TRIPLE"
+          source="qemu-center/target/$TARGET_TRIPLE/release/qemu-center"
+          destination="qemu-center/target/release/qemu-center"
+          test -f "$source" || { echo "Missing target qemu-center binary: $source"; exit 1; }
+          mkdir -p "$(dirname "$destination")"
+          cp "$source" "$destination"
+
+      - name: Build Windows NSIS package
+        if: matrix.id == 'windows-x64'
+        shell: pwsh
+        run: npx tauri build --target $env:TARGET_TRIPLE --bundles $env:TAURI_BUNDLES
+
+      - name: Build Linux packages
+        if: startsWith(matrix.id, 'linux-')
+        shell: bash
+        run: npx tauri build --target "$TARGET_TRIPLE" --bundles "$TAURI_BUNDLES"
+
+      - name: Stage Windows installer
+        if: matrix.id == 'windows-x64'
+        shell: pwsh
+        run: |
+          $staging = Join-Path $env:GITHUB_WORKSPACE "release-staging"
+          $bundleDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri/target/$env:TARGET_TRIPLE/release/bundle/nsis"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          $installers = @(Get-ChildItem -LiteralPath $bundleDir -Filter "*.exe" -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one NSIS installer, found $($installers.Count)."
+          }
+          Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $staging "JustRun-$env:RELEASE_VERSION-windows-x64-unsigned.exe")
+
+      - name: Stage Linux packages
+        if: startsWith(matrix.id, 'linux-')
+        shell: bash
+        run: |
+          staging="$GITHUB_WORKSPACE/release-staging"
+          bundle_root="$GITHUB_WORKSPACE/src-tauri/target/$TARGET_TRIPLE/release/bundle"
+          mapfile -t deb_files < <(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' -print)
+          mapfile -t appimage_files < <(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' -print)
+          test "${#deb_files[@]}" -eq 1 || { echo "Expected exactly one .deb, found ${#deb_files[@]}"; exit 1; }
+          test "${#appimage_files[@]}" -eq 1 || { echo "Expected exactly one .AppImage, found ${#appimage_files[@]}"; exit 1; }
+          mkdir -p "$staging"
+          cp "${deb_files[0]}" "$staging/JustRun-$RELEASE_VERSION-$PLATFORM_ID-unsigned.deb"
+          cp "${appimage_files[0]}" "$staging/JustRun-$RELEASE_VERSION-$PLATFORM_ID-unsigned.AppImage"
+
+      - name: Upload unsigned package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: justrun-${{ env.RELEASE_VERSION }}-${{ matrix.id }}-unsigned
+          path: release-staging/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Create Draft GitHub Release
+    if: github.event_name == 'push'
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: justrun-${{ github.ref_name }}-*-unsigned
+          path: release-staging
+          merge-multiple: true
+
+      - name: Verify package set and create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="$GITHUB_WORKSPACE/release-staging"
+          expected=(
+            "JustRun-$RELEASE_VERSION-windows-x64-unsigned.exe"
+            "JustRun-$RELEASE_VERSION-linux-x64-unsigned.deb"
+            "JustRun-$RELEASE_VERSION-linux-x64-unsigned.AppImage"
+            "JustRun-$RELEASE_VERSION-linux-arm64-unsigned.deb"
+            "JustRun-$RELEASE_VERSION-linux-arm64-unsigned.AppImage"
+          )
+          for file in "${expected[@]}"; do
+            test -f "$staging/$file" || { echo "Missing release asset: $file"; exit 1; }
+          done
+          mapfile -t packages < <(find "$staging" -maxdepth 1 -type f -name 'JustRun-*' -print | sort)
+          test "${#packages[@]}" -eq 5 || { echo "Expected exactly five package files, found ${#packages[@]}"; exit 1; }
+          sha256sum "${packages[@]}" | sed "s#  $staging/#  #" > "$staging/SHA256SUMS.txt"
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release-staging/RELEASE_NOTES.md <<EOF
+          # JustRun $RELEASE_VERSION
+
+          Unsigned beta packages:
+          - Windows x64: NSIS installer
+          - Linux x64: .deb and AppImage
+          - Linux arm64: .deb and AppImage
+
+          SHA-256 values are in SHA256SUMS.txt.
+
+          Known boundaries:
+          - Packages are unsigned until a release signing certificate is configured.
+          - Linux packaging does not claim Windows WHPX or QEMU runtime validation.
+          - Real installation, device operation, updater, and visual QA remain release checklist items.
+          EOF
+          printf 'version=$RELEASE_VERSION\n' > release-staging/release-version.txt
+
+      - name: Create or update Draft Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          existing="$(gh release view "$RELEASE_VERSION" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          if [ "$existing" = "true" ]; then
+            gh release upload "$RELEASE_VERSION" \
+              release-staging/JustRun-* \
+              release-staging/SHA256SUMS.txt \
+              --clobber
+          elif [ -n "$existing" ]; then
+            echo "Release $RELEASE_VERSION already exists and is published; refusing to mutate it."
+            exit 1
+          else
+            gh release create "$RELEASE_VERSION" \
+              --draft \
+              --title "JustRun $RELEASE_VERSION" \
+              --notes-file release-staging/RELEASE_NOTES.md \
+              release-staging/JustRun-* \
+              release-staging/SHA256SUMS.txt
+          fi
