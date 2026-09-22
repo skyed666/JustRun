@@ -7,16 +7,21 @@
 - [ ] 版本 tag 使用 `vMAJOR.MINOR.PATCH`，并与 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`qemu-center/Cargo.toml` 一致。
 - [ ] PR 质量工作流通过 TypeScript、Vitest、`src-tauri` 测试和 `qemu-center` 测试。
 - [ ] Windows x64 NSIS 安装包由 Windows runner 构建，产物路径和版本正确。
+- [ ] Linux x64 runner 构建 `.deb` 与 `.AppImage`，产物路径和版本正确。
+- [ ] Linux arm64 runner 构建 `.deb` 与 `.AppImage`，产物路径和版本正确。
 - [ ] 安装包有 `SHA256SUMS.txt`，下载后可以独立复核。
 - [ ] 构建结果没有打入 Docker Desktop、Redroid 镜像或 GApps zip。
-- [ ] Release Notes 写明 Windows x64 Beta、已验证轨道和已知限制。
+- [ ] tag 构建把 1 个 Windows 安装包、2 个 Linux x64 包和 2 个 Linux arm64 包汇总到 Draft Release；手动 workflow 只保留 Actions artifacts。
+- [ ] Release Notes 写明 Windows x64、Linux x64、Linux arm64 Beta、unsigned 状态、已验证轨道和已知限制。
 
 ## 安装与 QA 门
 
 - [ ] 在干净 Windows x64 机器完成安装、启动和卸载。
+- [ ] 在干净 Linux x64/arm64 环境分别完成对应 `.deb` 或 `.AppImage` 的安装、启动和卸载；不能用 CI 构建成功替代人工安装结论。
 - [ ] 至少一条轨道完成无 GApps 基础设备创建、ADB 连接和基本控制。
 - [ ] Docker 轨道的 Docker Desktop、WSL2/binder、镜像和 ADB 状态有记录。
 - [ ] QEMU 轨道的 WHPX、QEMU、cloud image、guest wait、ADB 和日志有记录。
+- [ ] Linux 发布包不宣称 WHPX 或 Windows 便携 QEMU 验收通过；Linux Docker/binder/QEMU 运行状态单独记录。
 - [ ] Android 13 x86_64 GApps 路径有记录；Android 14 使用 Android 13 GApps 的拒绝提示有记录。
 - [ ] Root/LSPosed/Shamiko/Cloak 等高级能力的实际限制有记录，不把模块存在当作完整功能通过。
 - [ ] 升级、数据保留、恢复和重新启动有记录。
@@ -25,6 +30,7 @@
 ## 签名门
 
 - [ ] 当前 Release 明确标记 signed 或 unsigned。
+- [ ] 当前五个安装包文件名包含平台、架构和 `unsigned` 标记，直到正式签名证书配置完成。
 - [ ] 正式签名证书仅来自 GitHub Secrets 或受控发布环境，没有进入仓库和日志。
 - [ ] Windows 安全提示和安装行为在干净机器上有记录。
 - [ ] 未完成正式签名时，Release 不使用“已签名”“可信安装包”等表述。
@@ -40,7 +46,7 @@
 
 - 版本和发布日期。
 - 新增、修复和已知限制。
-- 已验证的平台、轨道、Android 版本和 ABI。
+- 已验证的桌面目标明确列出：Windows x64、Linux x64、Linux arm64；五个安装包的下载名称与 SHA-256 对应。
 - 安装包下载与 SHA-256。
 - 签名和自动更新的真实状态。
 - 升级/回滚方式。
