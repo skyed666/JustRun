@@ -441,6 +441,7 @@ Read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`AGENTS.md`](AGENTS.md), and [`docs/
 - [QEMU Center CLI](qemu-center/README.md)
 - [WSL kernel and binder guide](scripts/README-WSL-KERNEL.md)
 - [Authorization service](authorization-service/README.md)
+- [Third-party notices](THIRD-PARTY-NOTICES.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Project collaboration rules](AGENTS.md)
 

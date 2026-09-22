@@ -2,6 +2,8 @@
 # Outputs to vendor/magisk/ (gitignored). Run before creating a Magisk-preset instance:
 #   .\scripts\fetch-magisk.ps1
 # Optional overrides: -MagiskUrl / -LsposedUrl / -ShamikoUrl
+# Local signing configuration is read from RDC_MAGISK_KEYSTORE_PATH and
+# RDC_MAGISK_KEYSTORE_PASSWORD; neither value belongs in the repository.
 param(
     [string]$MagiskUrl  = "https://github.com/ayasa520/Magisk/releases/download/v30.7/Magisk-v30.7.apk",
     [string]$MagiskMd5  = "0a31050fdcfaa15f47c9dd1eb8d04fc8",
@@ -89,13 +91,26 @@ Copy-Item $Apk (Join-Path $BinDir "magisk.apk") -Force
 # magiskd (check-signature build) derives its trusted cert from /sbin/stub.apk
 # (--setup-sbin source dir) and uninstalls any manager whose cert differs. The
 # fork's release APK can never pass (no matching stub is published), so both
-# artifacts are signed here with vendor/magisk/rdc-resign.keystore via apksig.
-$Keystore = Join-Path $DestDir "rdc-resign.keystore"
+# artifacts are signed here with the local keystore configured above via apksig.
+$Keystore = $env:RDC_MAGISK_KEYSTORE_PATH
+if ([string]::IsNullOrWhiteSpace($Keystore)) {
+    $Keystore = Join-Path $DestDir "rdc-resign.keystore"
+} else {
+    $Keystore = [Environment]::ExpandEnvironmentVariables($Keystore)
+}
+$KeystorePassword = $env:RDC_MAGISK_KEYSTORE_PASSWORD
+if ([string]::IsNullOrWhiteSpace($KeystorePassword)) {
+    throw "Set RDC_MAGISK_KEYSTORE_PASSWORD to a local-only password before fetching Magisk assets."
+}
+$KeystoreParent = Split-Path -Parent $Keystore
+if ($KeystoreParent) {
+    New-Item -ItemType Directory -Force -Path $KeystoreParent | Out-Null
+}
 $Signer = Join-Path $DestDir "SignApk.java"
 $Apksig = Join-Path $DestDir "apksig.jar"
 if (-not (Test-Path $Keystore)) {
     & keytool -genkeypair -keystore $Keystore -alias rdc -keyalg RSA -keysize 2048 `
-        -validity 10950 -storepass rdc-redroid -keypass rdc-redroid `
+        -validity 10950 -storepass $KeystorePassword -keypass $KeystorePassword `
         -dname "CN=JustRun,O=RDC,C=CN" -storetype PKCS12 | Out-Null
 }
 if (-not (Test-Path $Apksig)) {
@@ -103,7 +118,7 @@ if (-not (Test-Path $Apksig)) {
 }
 & javac -cp $Apksig $Signer
 if ($LASTEXITCODE -ne 0) { throw "SignApk.java compile failed" }
-& java -cp "$Apksig;$DestDir" SignApk $Keystore rdc-redroid (Join-Path $BinDir "magisk.apk") (Join-Path $BinDir "magisk.apk.signed")
+& java -cp "$Apksig;$DestDir" SignApk $Keystore $KeystorePassword (Join-Path $BinDir "magisk.apk") (Join-Path $BinDir "magisk.apk.signed")
 if ($LASTEXITCODE -ne 0) { throw "Magisk APK re-sign failed" }
 Move-Item (Join-Path $BinDir "magisk.apk.signed") (Join-Path $BinDir "magisk.apk") -Force
 Copy-Item (Join-Path $BinDir "magisk.apk") (Join-Path $BinDir "stub.apk") -Force

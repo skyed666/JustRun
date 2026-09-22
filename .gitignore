@@ -35,6 +35,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
+*.keystore
+*.p12
+*.pfx
+*.jks
 
 # Prebuilt WSL kernels (distribute via GitHub Releases, not git)
 vendor/wsl-kernel/**

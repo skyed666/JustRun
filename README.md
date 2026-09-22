@@ -468,6 +468,7 @@ git diff --check
 - [QEMU Center CLI](qemu-center/README.md)
 - [WSL 内核与 binder 说明](scripts/README-WSL-KERNEL.md)
 - [授权服务说明](authorization-service/README.md)
+- [第三方资产与许可证说明](THIRD-PARTY-NOTICES.md)
 - [贡献指南](CONTRIBUTING.md)
 - [项目协作约定](AGENTS.md)
 

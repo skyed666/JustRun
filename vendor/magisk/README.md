@@ -9,7 +9,7 @@ magisk/
   util_functions.sh
   magisk.apk                  # 重签后的管理器 APK（烤入镜像 /system/etc/init/magisk/）
   stub.apk                    # 与 magisk.apk 同证书（--setup-sbin 拷入 /sbin 作信任锚）
-rdc-resign.keystore           # 本地重签密钥（PKCS12, pass: rdc-redroid）
+rdc-resign.keystore           # 本地重签密钥（PKCS12，必须放在仓库外）
 SignApk.java / apksig.jar     # v2 重签工具（apksig 库）
 modules/
   lsposed-*.zip               # LSPosed (Zygisk)
@@ -17,6 +17,13 @@ modules/
 ```
 
 overlay 源文件（rc/脚本/spoof.conf）在 `vendor/magisk-overlay/`（进 Git）。
+
+本地重签配置通过环境变量提供，不要把密钥或密码提交到仓库：
+
+```powershell
+$env:RDC_MAGISK_KEYSTORE_PATH = "F:\private\rdc-resign.keystore"
+$env:RDC_MAGISK_KEYSTORE_PASSWORD = "<local-only-password>"
+```
 
 ## 为什么必须重签（重要）
 
