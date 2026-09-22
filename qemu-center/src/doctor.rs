@@ -1073,25 +1073,40 @@ mod tests {
 
     #[test]
     fn path_env_parsing_splits_and_dedups() {
+        let (path_env, path_a, home, program_files, program_data) = if cfg!(windows) {
+            (
+                "C:\\a;C:\\b;C:\\a",
+                PathBuf::from(r"C:\a"),
+                PathBuf::from(r"C:\Users\op"),
+                PathBuf::from(r"C:\Program Files"),
+                PathBuf::from(r"C:\ProgramData"),
+            )
+        } else {
+            (
+                "/a:/b:/a",
+                PathBuf::from("/a"),
+                PathBuf::from("/home/op"),
+                PathBuf::from("/opt"),
+                PathBuf::from("/var/lib"),
+            )
+        };
         let dirs = candidate_qemu_dirs(
-            "C:\\a;C:\\b;C:\\a",
-            Some(Path::new("C:\\Users\\op")),
-            Some(Path::new("C:\\Program Files")),
-            Some(Path::new("C:\\ProgramData")),
+            path_env,
+            Some(&home),
+            Some(&program_files),
+            Some(&program_data),
         );
-        assert!(dirs.contains(&PathBuf::from("C:\\a")));
+        assert!(dirs.contains(&path_a));
         assert_eq!(
-            dirs.iter()
-                .filter(|d| **d == PathBuf::from("C:\\a"))
-                .count(),
+            dirs.iter().filter(|d| **d == path_a).count(),
             1,
             "duplicates removed"
         );
-        assert!(dirs.contains(&PathBuf::from("C:\\Users\\op\\scoop\\shims")));
-        assert!(dirs.contains(&PathBuf::from("C:\\Program Files\\QEMU")));
-        assert!(dirs.contains(&PathBuf::from("C:\\ProgramData\\chocolatey\\bin")));
+        assert!(dirs.contains(&home.join("scoop").join("shims")));
+        assert!(dirs.contains(&program_files.join("QEMU")));
+        assert!(dirs.contains(&program_data.join("chocolatey").join("bin")));
         // PATH comes first: operator's explicit ordering wins.
-        assert_eq!(dirs[0], PathBuf::from("C:\\a"));
+        assert_eq!(dirs[0], path_a);
     }
 
     #[test]
