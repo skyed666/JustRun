@@ -263,7 +263,7 @@ pub fn validate_portable_target(dir: &std::path::Path) -> Result<(), String> {
     if text.chars().any(char::is_whitespace) {
         return Err(format!(
             "portable install target {text:?} contains whitespace; NSIS /D= cannot take it reliably. \
-             Move the repository to a whitespace-free path (e.g. C:\\dev\\Android-Device), \
+             Move the repository to a whitespace-free path (e.g. C:\\dev\\JustRun), \
              pass a --state-dir without spaces, or use `setup qemu --machine` (machine-wide install)."
         ));
     }
@@ -644,14 +644,14 @@ mod tests {
     fn nsis_portable_command_puts_install_dir_last() {
         let argv = nsis_portable_command(
             std::path::Path::new("D:/dl/qemu-w64-setup-20250429.exe"),
-            std::path::Path::new("F:/code/project/Android-Device/qemu-center/state/qemu"),
+            std::path::Path::new("F:/code/project/JustRun/qemu-center/state/qemu"),
         );
         assert_eq!(argv.len(), 3);
         assert!(argv[0].ends_with("qemu-w64-setup-20250429.exe"));
         assert_eq!(argv[1], "/S");
         assert_eq!(
             argv[2],
-            "/D=F:/code/project/Android-Device/qemu-center/state/qemu"
+            "/D=F:/code/project/JustRun/qemu-center/state/qemu"
         );
         // NSIS rule: /D= must be the very last token (anything after it is
         // silently ignored by the installer).
@@ -661,7 +661,7 @@ mod tests {
 
     #[test]
     fn portable_target_rejects_whitespace_with_guidance() {
-        let spaced = std::path::Path::new("C:/Program Files/Android-Device/qemu-center/state/qemu");
+        let spaced = std::path::Path::new("C:/Program Files/JustRun/qemu-center/state/qemu");
         let err = validate_portable_target(spaced).unwrap_err();
         assert!(err.contains("whitespace"));
         assert!(err.contains("/D="), "explains the NSIS /D= reason");
@@ -670,7 +670,7 @@ mod tests {
             "offers the machine-wide escape hatch"
         );
         assert!(validate_portable_target(std::path::Path::new(
-            "F:/code/project/Android-Device/qemu-center/state/qemu"
+            "F:/code/project/JustRun/qemu-center/state/qemu"
         ))
         .is_ok());
         assert!(validate_portable_target(std::path::Path::new("D:/qc/state/qemu")).is_ok());

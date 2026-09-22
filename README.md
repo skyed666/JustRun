@@ -147,7 +147,7 @@ flowchart LR
 #### 6.2 安装依赖并启动 Tauri
 
 ```powershell
-cd F:\code\project\Android-Device
+cd F:\code\project\JustRun
 npm install
 npm run tauri dev
 ```

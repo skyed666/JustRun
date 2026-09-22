@@ -121,7 +121,7 @@ See [`docs/compatibility.md`](docs/compatibility.md) for the authoritative matri
 #### 6.2 Install dependencies and start Tauri
 
 ```powershell
-cd F:\code\project\Android-Device
+cd F:\code\project\JustRun
 npm install
 npm run tauri dev
 ```

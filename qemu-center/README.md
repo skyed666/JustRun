@@ -231,7 +231,7 @@ Settings 页「默认运行轨道」下拉可记录 docker|qemu 偏好（`defaul
 `--state-dir` 解析顺序：CLI 显式参数 > 环境变量 `QEMU_CENTER_STATE_DIR` > `%APPDATA%\QemuCenter`（Linux/macOS: `~/.config/QemuCenter`）。**RDC 应用内的每次调用都由桥接层显式传 `--state-dir <repo>/qemu-center/state`**（见 `src-tauri/src/services/qemu.rs` 的 `default_portable_state_dir`），命令行上也可以用环境变量达到同样效果：
 
 ```powershell
-$env:QEMU_CENTER_STATE_DIR = "F:\code\project\Android-Device\qemu-center\state"
+$env:QEMU_CENTER_STATE_DIR = "F:\code\project\JustRun\qemu-center\state"
 ```
 
 `setup qemu` 默认把 QEMU 本体也装进同一个根（`state\qemu`），因此状态、镜像、磁盘、QEMU 全部在项目内，卸载 = 删目录；不写注册表 PATH、不占 `C:\Program Files`（`--machine` 显式参数才走机器级 winget/scoop/choco/NSIS 通道）：

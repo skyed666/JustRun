@@ -1129,11 +1129,11 @@ mod tests {
     fn serial_renders_a_windows_disk_path_with_forward_slashes() {
         let mut o = opts();
         o.disk =
-            PathBuf::from(r"F:\code\project\Android-Device\qemu-center\state\vms\node1\disk.qcow2");
+            PathBuf::from(r"F:\code\project\JustRun\qemu-center\state\vms\node1\disk.qcow2");
         let cmd = qemu_command(&o);
         assert_eq!(
             flag_value(&cmd, "-serial").as_deref(),
-            Some("file:F:/code/project/Android-Device/qemu-center/state/vms/node1/console.log")
+            Some("file:F:/code/project/JustRun/qemu-center/state/vms/node1/console.log")
         );
     }
 
