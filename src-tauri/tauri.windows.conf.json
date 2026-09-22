@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../qemu-center/target/release/qemu-center.exe": "qemu-center/qemu-center.exe"
+    }
+  }
+}

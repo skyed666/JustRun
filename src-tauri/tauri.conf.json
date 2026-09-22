@@ -43,8 +43,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "../qemu-center/target/release/qemu-center.exe": "qemu-center/qemu-center.exe"
-    }
+    "resources": {}
   }
 }
