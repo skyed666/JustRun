@@ -10,7 +10,7 @@
 ## 一、现状：两条轨道并列
 
 ```
-Android-Device (Tauri 2 + React 19 + Rust)
+JustRun (Tauri 2 + React 19 + Rust)
 ├── src-tauri/src/services/docker.rs      ← 既有轨道：Windows/WSL2 内核 + Docker Desktop + redroid（3000+ 行，42+ 函数）
 ├── src/…                                 ← 既有前端
 └── qemu-center/                          ← 新轨道：独立 crate，零文件接触

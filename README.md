@@ -73,7 +73,7 @@ QEMU 轨道的隔离边界是“节点级”：同一台 VM 内的多个 Redroid
 #### 目录结构
 
 ```text
-Android-Device/
+JustRun/
 ├─ src/                         # React 页面、组件、i18n、stores、services 桥
 │  ├─ components/               # 布局、控件和可复用 UI
 │  ├─ pages/                    # Dashboard、Devices、Runtime、ADB、APK 等页面

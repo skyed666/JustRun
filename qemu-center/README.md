@@ -2,7 +2,7 @@
 
 **独立 QEMU/WHPX 轨道**：一台 VM = 一个"节点"，节点内跑 Docker + redroid（与主仓库 Docker 方案同镜像），一个节点承载 N 个 redroid 容器。宿主 adb/scrcpy 通过 QEMU user-mode 端口转发无感连接。
 
-> **本项目是 `Android-Device` 仓库的纯增量子目录**：不修改任何既有文件，不参与根 workspace，独立 crate。验证命令只有 `cargo test --manifest-path qemu-center/Cargo.toml`（**切勿**在仓库根跑 cargo，也**切勿**在根创建 Cargo.toml/workspace——根 workspace 会影响 `src-tauri` 构建）。
+> **本项目是 `JustRun` 仓库的纯增量子目录**：不修改任何既有文件，不参与根 workspace，独立 crate。验证命令只有 `cargo test --manifest-path qemu-center/Cargo.toml`（**切勿**在仓库根跑 cargo，也**切勿**在根创建 Cargo.toml/workspace——根 workspace 会影响 `src-tauri` 构建）。
 
 ---
 

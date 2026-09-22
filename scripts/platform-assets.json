@@ -2,7 +2,7 @@
   "description": "Prebuilt WSL binder kernel Release assets for Windows. Linux uses host binder; macOS uses Docker Desktop Linux VM, QEMU, or remote Linux — no macOS bzImage.",
   "github": {
     "owner": "YOUR_GITHUB_ORG",
-    "repo": "Android-Device",
+    "repo": "JustRun",
     "tag": "wsl-kernel-latest"
   },
   "installDirWindows": "C:\\\\wsl-kernel",

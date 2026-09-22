@@ -27,7 +27,7 @@
 .EXAMPLE
   .\install-wsl-kernel.ps1 -Apply
   .\install-wsl-kernel.ps1 -Source local -LocalPath .\dist\wsl-kernel-binder-windows-x64-bzImage -Apply
-  .\install-wsl-kernel.ps1 -Owner myorg -Repo Android-Device -Tag wsl-kernel-v1 -Apply
+  .\install-wsl-kernel.ps1 -Owner myorg -Repo JustRun -Tag wsl-kernel-v1 -Apply
 #>
 param(
   [ValidateSet("auto", "local", "download")]
