@@ -1,0 +1,431 @@
+import { create } from "zustand";
+import type { AppSettings, DeviceInfo, SystemStatus } from "../types";
+import type { DockerSourceReading, QemuSourceReading } from "../lib/runtimeTrack";
+import { DeviceService } from "../services/deviceService";
+
+/**
+ * Cross-page state of a QEMU environment-setup run (`setup all` can block in a
+ * Rust CLI child for up to an hour). Lives in the global store so switching
+ * pages — which unmounts QemuCenter — never loses the "still running" signal.
+ * Session-only on purpose: restarting the app kills the child process anyway.
+ */
+export interface QemuSetupState {
+  running: boolean;
+  step: string;
+  startedAt: number;
+}
+
+/** Tri-state theme preference ("system" = follow prefers-color-scheme). */
+export type ThemePref = "light" | "dark" | "system";
+
+/** Map a stored settings theme value onto the tri-state preference. */
+export function themePrefOf(value: string | null | undefined): ThemePref {
+  return value === "dark" || value === "light" ? value : "system";
+}
+
+function resolvedTheme(pref: ThemePref): "light" | "dark" {
+  if (pref !== "system") return pref;
+  try {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function applyThemeAttribute(theme: "light" | "dark") {
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+}
+
+/** Live MediaQueryList while the preference is "system" (else null). */
+let systemThemeQuery: MediaQueryList | null = null;
+
+function onSystemThemeChange() {
+  const theme = resolvedTheme("system");
+  useAppStore.setState({ theme });
+  applyThemeAttribute(theme);
+}
+
+function syncSystemThemeListener(pref: ThemePref) {
+  try {
+    systemThemeQuery?.removeEventListener?.("change", onSystemThemeChange);
+    systemThemeQuery = null;
+    if (pref === "system") {
+      const mql = window.matchMedia("(prefers-color-scheme: dark)");
+      mql.addEventListener?.("change", onSystemThemeChange);
+      systemThemeQuery = mql;
+    }
+  } catch {
+    /* matchMedia unavailable (old webview / test env): static resolution only */
+  }
+}
+import {
+  appendMonitorAlert,
+  clearMonitorAlertsBefore,
+  hasRecentMonitorAlert,
+  MAX_MONITOR_ALERT_HISTORY,
+  MONITOR_ALERT_UNDO_WINDOW_MS,
+  MONITOR_ALERT_STORAGE_KEY,
+  parseStoredMonitorAlerts,
+  removeMonitorAlertsByIds,
+  restoreMonitorAlerts,
+  type MonitorAlert,
+} from "../lib/monitorAlerts";
+
+interface AppState {
+  theme: "light" | "dark";
+  themePref: ThemePref;
+  selectedDeviceId: string | null;
+  status: SystemStatus | null;
+  devices: DeviceInfo[];
+  monitorAlerts: MonitorAlert[];
+  lastDismissedMonitorAlerts: MonitorAlert[] | null;
+  monitorAlertUndoKind: MonitorAlertUndoKind | null;
+  monitorAlertUndoExpiresAt: number | null;
+  settings: AppSettings | null;
+  loading: boolean;
+  statusText: string;
+  refreshing: boolean;
+  qemuSetup: QemuSetupState | null;
+  /** VM whose guest-SSH wait was interrupted by a page switch (null = none). */
+  qemuWaitVm: string | null;
+  /**
+   * Session cache behind the merged page's source badges (merge spec §6.8).
+   * Session-only, like `qemuSetup`: a restart re-probes anyway. It has to live
+   * outside the panels because the shell renders both badges while only the
+   * active track is mounted — and re-entering `/containers` must show the last
+   * cached check with its timestamp instead of running one (the QEMU WHPX probe
+   * costs seconds and has timeout steps).
+   */
+  runtimeSources: { docker: DockerSourceReading | null; qemu: QemuSourceReading | null };
+  /** pref: "light" | "dark" | "system" (system tracks prefers-color-scheme). */
+  setTheme: (pref: ThemePref) => void;
+  setSelectedDeviceId: (id: string | null) => void;
+  setDevices: (devices: DeviceInfo[]) => void;
+  setStatusText: (text: string) => void;
+  setQemuSetup: (state: QemuSetupState | null) => void;
+  setQemuWaitVm: (vm: string | null) => void;
+  /** Read-only publish from a track panel; never clears a previous reading. */
+  setDockerSource: (reading: DockerSourceReading) => void;
+  setQemuSource: (reading: QemuSourceReading) => void;
+  addMonitorAlert: (alert: MonitorAlert) => void;
+  dismissMonitorAlert: (id: string) => void;
+  dismissMonitorAlerts: (ids: string[]) => void;
+  restoreDismissedMonitorAlerts: () => boolean;
+  expireDismissedMonitorAlertUndo: () => void;
+  clearMonitorAlerts: (deviceId?: string) => void;
+  clearMonitorAlertsBefore: (cutoff: number) => void;
+  refreshStatus: () => Promise<void>;
+  refreshDevices: () => Promise<void>;
+  loadSettings: () => Promise<void>;
+  saveSettings: (s: AppSettings) => Promise<void>;
+}
+
+import { tStatic } from "../i18n";
+
+type MonitorAlertUndoKind = "dismiss" | "clear" | "cleanup";
+
+let statusInFlight = false;
+let devicesInFlight: Promise<void> | null = null;
+let statusFails = 0;
+let deviceFails = 0;
+
+let lastWasRefreshFail = false;
+
+function readMonitorAlerts(): MonitorAlert[] {
+  try {
+    return parseStoredMonitorAlerts(localStorage.getItem(MONITOR_ALERT_STORAGE_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function persistMonitorAlerts(alerts: MonitorAlert[]) {
+  try {
+    localStorage.setItem(MONITOR_ALERT_STORAGE_KEY, JSON.stringify(alerts));
+  } catch {
+    /* local persistence is best effort */
+  }
+}
+
+function noteRefreshOk() {
+  statusFails = 0;
+  deviceFails = 0;
+  if (lastWasRefreshFail) {
+    lastWasRefreshFail = false;
+    useAppStore.getState().setStatusText(tStatic("common.status.ready"));
+  }
+}
+
+function noteRefreshFail(kind: string) {
+  if (kind === "status") statusFails += 1;
+  else deviceFails += 1;
+  if (statusFails + deviceFails >= 2) {
+    lastWasRefreshFail = true;
+    useAppStore.getState().setStatusText(tStatic("common.status.refreshFailedRetry"));
+  }
+}
+
+export const useAppStore = create<AppState>((set, get) => ({
+  theme: "light",
+  themePref: "light",
+  selectedDeviceId: (() => {
+    try {
+      return localStorage.getItem("rdc.selectedDeviceId");
+    } catch {
+      return null;
+    }
+  })(),
+  status: null,
+  devices: [],
+  monitorAlerts: readMonitorAlerts(),
+  lastDismissedMonitorAlerts: null,
+  monitorAlertUndoKind: null,
+  monitorAlertUndoExpiresAt: null,
+  settings: null,
+  loading: false,
+  statusText: tStatic("common.status.ready"),
+  refreshing: false,
+  qemuSetup: null,
+  qemuWaitVm: null,
+  runtimeSources: { docker: null, qemu: null },
+
+  setQemuSetup: (qemuSetup) => set({ qemuSetup }),
+  setQemuWaitVm: (qemuWaitVm) => set({ qemuWaitVm }),
+  setDockerSource: (reading) =>
+    set((state) => ({ runtimeSources: { ...state.runtimeSources, docker: reading } })),
+  setQemuSource: (reading) =>
+    set((state) => ({ runtimeSources: { ...state.runtimeSources, qemu: reading } })),
+
+  setTheme: (pref) => {
+    const theme = resolvedTheme(pref);
+    set({ themePref: pref, theme });
+    applyThemeAttribute(theme);
+    syncSystemThemeListener(pref);
+  },
+
+  setSelectedDeviceId: (selectedDeviceId) => {
+    set({ selectedDeviceId });
+    try {
+      if (selectedDeviceId) localStorage.setItem("rdc.selectedDeviceId", selectedDeviceId);
+    } catch {
+      /* ignore */
+    }
+  },
+  setDevices: (devices) => set({ devices, loading: false }),
+  setStatusText: (statusText) => set({ statusText }),
+  addMonitorAlert: (alert) =>
+    set((state) => {
+      if (hasRecentMonitorAlert(state.monitorAlerts, alert)) return state;
+      const monitorAlerts = appendMonitorAlert(
+        state.monitorAlerts,
+        alert,
+        MAX_MONITOR_ALERT_HISTORY,
+      );
+      persistMonitorAlerts(monitorAlerts);
+      return {
+        monitorAlerts,
+        lastDismissedMonitorAlerts: null,
+        monitorAlertUndoKind: null,
+        monitorAlertUndoExpiresAt: null,
+      };
+    }),
+  dismissMonitorAlert: (id) =>
+    set((state) => {
+      const monitorAlerts = state.monitorAlerts.filter((alert) => alert.id !== id);
+      if (monitorAlerts.length === state.monitorAlerts.length) return state;
+      persistMonitorAlerts(monitorAlerts);
+      return {
+        monitorAlerts,
+        lastDismissedMonitorAlerts: null,
+        monitorAlertUndoKind: null,
+        monitorAlertUndoExpiresAt: null,
+      };
+    }),
+  dismissMonitorAlerts: (ids) =>
+    set((state) => {
+      const selectedIds = new Set(ids);
+      const dismissed = state.monitorAlerts.filter((alert) => selectedIds.has(alert.id));
+      if (dismissed.length === 0) return state;
+      const monitorAlerts = removeMonitorAlertsByIds(state.monitorAlerts, ids);
+      persistMonitorAlerts(monitorAlerts);
+      return {
+        monitorAlerts,
+        lastDismissedMonitorAlerts: dismissed,
+        monitorAlertUndoKind: "dismiss",
+        monitorAlertUndoExpiresAt: Date.now() + MONITOR_ALERT_UNDO_WINDOW_MS,
+      };
+    }),
+  restoreDismissedMonitorAlerts: () => {
+    let restored = false;
+    set((state) => {
+      if (!state.lastDismissedMonitorAlerts?.length) return state;
+      if (
+        state.monitorAlertUndoExpiresAt === null ||
+        Date.now() >= state.monitorAlertUndoExpiresAt
+      ) {
+        return {
+          lastDismissedMonitorAlerts: null,
+          monitorAlertUndoKind: null,
+          monitorAlertUndoExpiresAt: null,
+        };
+      }
+      const monitorAlerts = restoreMonitorAlerts(
+        state.monitorAlerts,
+        state.lastDismissedMonitorAlerts,
+        MAX_MONITOR_ALERT_HISTORY,
+      );
+      persistMonitorAlerts(monitorAlerts);
+      restored = true;
+      return {
+        monitorAlerts,
+        lastDismissedMonitorAlerts: null,
+        monitorAlertUndoKind: null,
+        monitorAlertUndoExpiresAt: null,
+      };
+    });
+    return restored;
+  },
+  expireDismissedMonitorAlertUndo: () =>
+    set((state) =>
+      state.lastDismissedMonitorAlerts || state.monitorAlertUndoExpiresAt !== null
+        ? {
+            lastDismissedMonitorAlerts: null,
+            monitorAlertUndoKind: null,
+            monitorAlertUndoExpiresAt: null,
+          }
+        : state,
+    ),
+  clearMonitorAlerts: (deviceId) =>
+    set((state) => {
+      const removed = deviceId
+        ? state.monitorAlerts.filter((alert) => alert.deviceId === deviceId)
+        : state.monitorAlerts;
+      const monitorAlerts = deviceId
+        ? state.monitorAlerts.filter((alert) => alert.deviceId !== deviceId)
+        : [];
+      persistMonitorAlerts(monitorAlerts);
+      return {
+        monitorAlerts,
+        lastDismissedMonitorAlerts: removed.length > 0 ? removed : null,
+        monitorAlertUndoKind: removed.length > 0 ? "clear" : null,
+        monitorAlertUndoExpiresAt:
+          removed.length > 0 ? Date.now() + MONITOR_ALERT_UNDO_WINDOW_MS : null,
+      };
+    }),
+  clearMonitorAlertsBefore: (cutoff) =>
+    set((state) => {
+      const removed = state.monitorAlerts.filter((alert) => alert.createdAt < cutoff);
+      const monitorAlerts = clearMonitorAlertsBefore(state.monitorAlerts, cutoff);
+      persistMonitorAlerts(monitorAlerts);
+      return {
+        monitorAlerts,
+        lastDismissedMonitorAlerts: removed.length > 0 ? removed : null,
+        monitorAlertUndoKind: removed.length > 0 ? "cleanup" : null,
+        monitorAlertUndoExpiresAt:
+          removed.length > 0 ? Date.now() + MONITOR_ALERT_UNDO_WINDOW_MS : null,
+      };
+    }),
+
+  refreshStatus: async () => {
+    if (statusInFlight) return;
+    statusInFlight = true;
+    try {
+      const status = await DeviceService.getSystemStatus();
+      set({ status });
+      statusFails = 0;
+      if (deviceFails === 0) noteRefreshOk();
+    } catch {
+      noteRefreshFail("status");
+    } finally {
+      statusInFlight = false;
+    }
+  },
+
+  refreshDevices: () => {
+    if (devicesInFlight) return devicesInFlight;
+    const hasData = get().devices.length > 0;
+    if (!hasData) set({ loading: true });
+    const request = (async () => {
+      try {
+        // Unified stream: Docker track + QEMU track (rows carry `source`).
+        // The plain list_devices command stays registered for compatibility.
+        const devices = await DeviceService.listDevicesUnified();
+        set({ devices, loading: false });
+        deviceFails = 0;
+        if (statusFails === 0) noteRefreshOk();
+      } catch {
+        set({ loading: false });
+        noteRefreshFail("device");
+      }
+    })();
+    const trackedRequest = request.finally(() => {
+      if (devicesInFlight === trackedRequest) devicesInFlight = null;
+    });
+    devicesInFlight = trackedRequest;
+    return trackedRequest;
+  },
+
+  loadSettings: async () => {
+    try {
+      const settings = await DeviceService.getSettings();
+      const pref = themePrefOf(settings.theme);
+      set({ settings, themePref: pref, theme: resolvedTheme(pref) });
+      applyThemeAttribute(resolvedTheme(pref));
+      syncSystemThemeListener(pref);
+    } catch {
+      // Web preview / backend unavailable: fall back to client defaults so the
+      // Settings page renders instead of hanging on the loading state.
+      if (!get().settings) {
+        set({
+          settings: {
+            theme: "light",
+            language: "zh-CN",
+            autoUpdate: true,
+            logPath: "",
+            screenshotPath: "",
+            apkPath: "",
+            proxy: "",
+            dockerPath: "docker",
+            adbPath: "adb",
+            scrcpyPath: "scrcpy",
+            gnirehtetPath: "gnirehtet",
+            recordingPath: "",
+            closeToTray: false,
+            launchAtLogin: false,
+            edgeHide: false,
+            desktopShortcut: false,
+            updateChannel: "stable",
+            skippedUpdateVersion: "",
+            gappsZipPath: "",
+            installGapps: true,
+            lastCpu: "2",
+            lastRam: "2g",
+            lastResolution: "1080x1920",
+            lastDpi: "320",
+            lastImage: "redroid/redroid:13.0.0-latest",
+            autoStartDeviceIds: [],
+            createAutoStart: false,
+            createStayOnForm: false,
+            createWaitAdb: true,
+            resourceAlertThreshold: 80,
+            deviceRefreshIntervalSecs: 10,
+            deviceMonitorRules: {},
+            runtimeIdleTimeoutMinutes: 30,
+            runtimeKeepVmWarm: false,
+            runtimeMaxParallelStarts: 1,
+            runtimeProtectedInstanceIds: [],
+            runtimeAutoReleaseIdleOnCritical: true,
+          },
+        });
+      }
+    }
+  },
+
+  saveSettings: async (settings) => {
+    const updated = await DeviceService.updateSettings(settings);
+    set({ settings: updated });
+    get().setTheme(themePrefOf(updated.theme));
+  },
+}));
