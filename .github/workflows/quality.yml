@@ -73,6 +73,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Build qemu-center release binary
+        run: cargo build --locked --release --manifest-path qemu-center/Cargo.toml
+
       - name: Run Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
