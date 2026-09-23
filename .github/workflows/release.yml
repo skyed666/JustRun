@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -196,10 +196,48 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  scan-windows:
+    name: Scan Windows installer
+    needs: package
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+    steps:
+      - name: Download Windows package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: justrun-${{ env.RELEASE_VERSION }}-windows-x64-unsigned
+          path: release-staging
+
+      - name: Install ClamAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes clamav clamav-freshclam
+
+      - name: Update ClamAV signatures
+        run: |
+          sudo systemctl stop clamav-freshclam.service 2>/dev/null || true
+          sudo freshclam --verbose
+
+      - name: Scan Windows installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t installers < <(find release-staging -maxdepth 1 -type f -name 'JustRun-*-windows-x64-unsigned.exe' -print)
+          if [ "${#installers[@]}" -ne 1 ]; then
+            echo "Expected exactly one staged Windows installer, found ${#installers[@]}"
+            exit 1
+          fi
+          clamscan --infected --no-summary "${installers[0]}"
+          echo "ClamAV reported no detections in ${installers[0]}"
+
   publish:
     name: Create Draft GitHub Release
     if: github.event_name == 'push'
-    needs: package
+    needs: [package, scan-windows]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
