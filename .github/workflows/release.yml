@@ -157,7 +157,9 @@ jobs:
       - name: Build Linux packages
         if: startsWith(matrix.id, 'linux-')
         shell: bash
-        run: npx tauri build --target "$TARGET_TRIPLE" --bundles "$TAURI_BUNDLES"
+        run: |
+          read -r -a bundles <<< "$TAURI_BUNDLES"
+          npx tauri build --target "$TARGET_TRIPLE" --bundles "${bundles[@]}"
 
       - name: Stage Windows installer
         if: matrix.id == 'windows-x64'
