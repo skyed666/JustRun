@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::util::hide_console_window;
 use crate::models::RuntimeMetrics;
 use crate::services::adb;
 
@@ -415,7 +416,9 @@ pub fn resolve_qemu_center_bin() -> Option<PathBuf> {
 
 fn probe_path(bin: &str) -> Option<PathBuf> {
     let probe = if cfg!(windows) { "where" } else { "which" };
-    let output = Command::new(probe)
+    let mut command = Command::new(probe);
+    hide_console_window(&mut command);
+    let output = command
         .arg(bin)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -616,6 +619,7 @@ pub fn run_cli(args: &[String], timeout: Duration) -> Result<QemuCliOutput, Stri
 pub fn run_cli_at(bin: &Path, args: &[String], timeout: Duration) -> Result<QemuCliOutput, String> {
     let effective = timeout.min(Duration::from_secs(MAX_CLI_TIMEOUT_SECS));
     let mut command = Command::new(bin);
+    hide_console_window(&mut command);
     command
         .args(args)
         .stdin(Stdio::null())
@@ -655,7 +659,9 @@ pub fn run_cli_at(bin: &Path, args: &[String], timeout: Duration) -> Result<Qemu
 fn kill_cli_tree(pid: u32) {
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
+        let mut command = Command::new("taskkill");
+        hide_console_window(&mut command);
+        let _ = command
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())

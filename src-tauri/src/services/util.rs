@@ -51,6 +51,18 @@ pub fn prepend_path(cmd: &mut Command, directory: &Path) {
     }
 }
 
+pub(super) fn hide_console_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 /// Resolve a configured tool name in the environment used by a packaged GUI.
 /// macOS apps launched from Finder do not always inherit the shell PATH, so
 /// Homebrew and the Android SDK need a small, deterministic fallback search.
@@ -118,6 +130,7 @@ pub fn command(program: &str) -> Command {
             cmd.env("PATH", path);
         }
     }
+    hide_console_window(&mut cmd);
     cmd
 }
 
@@ -481,7 +494,9 @@ pub fn run_command_cancellable(
 fn kill_process(pid: u32) {
     #[cfg(target_os = "windows")]
     {
-        let _ = Command::new("taskkill")
+        let mut command = Command::new("taskkill");
+        hide_console_window(&mut command);
+        let _ = command
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
