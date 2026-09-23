@@ -56,6 +56,7 @@ Windows job 继续执行现有授权服务测试、旋转契约检查、前端�
 - 统一生成 `SHA256SUMS.txt` 和简短的 Beta 发布说明；
 - tag 触发时创建或更新 Draft Release 并上传所有安装包；
 - 手动触发只保留 Actions artifact，避免没有正式 tag 时误创建 Release。
+- publish job 不执行 checkout，因此必须设置 `GH_REPO: ${{ github.repository }}`，让 GitHub CLI 在没有本地 `.git` 目录时仍能定位目标仓库。
 
 Release 明确标注当前包为 unsigned，除非仓库后续提供真实签名证书配置；不把 GitHub Actions artifact retention 当作 Release 附件。
 
@@ -86,4 +87,3 @@ Release 明确标注当前包为 unsigned，除非仓库后续提供真实签名
 - Linux 主机 Docker/binder/QEMU 环境；
 - Windows 签名证书、SmartScreen 和正式 updater 配置；
 - P7-1 真机人工走查。
-
