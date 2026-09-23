@@ -30,6 +30,9 @@ jobs:
       - name: Install from lockfile
         run: npm ci --ignore-scripts
 
+      - name: Test release authorization configuration
+        run: node --test scripts/check-release-auth-config.test.mjs
+
       - name: Audit dependencies
         run: npm audit --audit-level=moderate
 

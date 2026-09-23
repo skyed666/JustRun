@@ -192,7 +192,9 @@ $env:RDC_UPDATE_PUBKEY = Get-Content -Raw -LiteralPath ".\\release\\tauri-update
 npm run tauri:build:release
 ```
 
-受保护 QEMU guest loader 的发布构建还需要根据发布环境提供 `RDC_AUTH_EXECUTION_RELEASE_URL` 和 `RDC_AUTH_PUBLIC_KEYS`。不要把服务端签名私钥放进桌面构建环境。
+发布包的授权模式由 GitHub Actions repository variable `RDC_AUTH_REQUIRED` 控制；未设置时默认为 `false`，Windows/Linux 包可以在没有授权服务的情况下构建。此模式下，受保护的 QEMU 预装、恢复和详情操作保持禁用，不会绕过授权校验，也不会把受保护 runner 打入客户端。
+
+需要启用这些受保护操作时，将 `RDC_AUTH_REQUIRED` 设为 `true`，并配置 `RDC_AUTH_BASE_URL` 与 `RDC_AUTH_PUBLIC_KEYS`。`RDC_AUTH_EXECUTION_RELEASE_URL` 可选；未设置时使用 `{RDC_AUTH_BASE_URL}/v1/execution-grants/release`。不要把服务端签名私钥放进桌面构建环境。此开关是 JustRun 的功能授权配置，与 QEMU 自身的开源许可无关。
 
 ### 7. Docker 轨道
 

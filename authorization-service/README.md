@@ -27,19 +27,26 @@ Example local-only startup:
     RDC_AUTH_BIND=127.0.0.1:8787
     cargo run --manifest-path authorization-service/Cargo.toml
 
-For a production desktop build, configure the same two non-secret values as
-GitHub Actions repository variables named `RDC_AUTH_BASE_URL` and
-`RDC_AUTH_PUBLIC_KEYS` (or inject them into an equivalent private release
-pipeline) before building Tauri:
+Authorization is optional for desktop releases. Without a deployed service,
+leave `RDC_AUTH_REQUIRED` unset or set it to `false`; packages will build, but
+protected QEMU preset apply/restore/details operations remain disabled. This
+does not embed the protected runner or bypass its grant checks.
+
+To enable those operations, set the GitHub Actions repository variable
+`RDC_AUTH_REQUIRED` to `true`, then configure the non-secret variables
+`RDC_AUTH_BASE_URL` and `RDC_AUTH_PUBLIC_KEYS` (or inject them into an
+equivalent private release pipeline) before building Tauri. The release URL
+is optional and defaults to
+`{RDC_AUTH_BASE_URL}/v1/execution-grants/release`:
 
     $env:RDC_AUTH_BASE_URL = "https://auth.example.invalid"
     $env:RDC_AUTH_PUBLIC_KEYS = "auth-2026-01=<base64url-old-key>,auth-2026-02=<base64url-next-key>"
     npm run tauri build
 
-The Windows release workflow fails before compilation when either value is
-missing. The server signing secret is never set in the desktop build
-environment; only the public endpoint and verifier key ring are inherited by
-the Tauri compiler.
+The release workflow fails before compilation when authorization is enabled
+and either required public value is missing. The server signing secret is
+never set in the desktop build environment; only the public endpoint and
+verifier key ring are inherited by the Tauri compiler.
 `auth.example.invalid` is an example value only; use the real deployment URL
 in the private release pipeline.
 

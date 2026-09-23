@@ -42,6 +42,7 @@ jobs:
 
     env:
       RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      RDC_AUTH_REQUIRED: ${{ vars.RDC_AUTH_REQUIRED }}
       RDC_AUTH_BASE_URL: ${{ vars.RDC_AUTH_BASE_URL }}
       RDC_AUTH_EXECUTION_RELEASE_URL: ${{ vars.RDC_AUTH_EXECUTION_RELEASE_URL || format('{0}/v1/execution-grants/release', vars.RDC_AUTH_BASE_URL) }}
       RDC_AUTH_PUBLIC_KEYS: ${{ vars.RDC_AUTH_PUBLIC_KEYS }}
@@ -100,33 +101,18 @@ jobs:
       - name: Validate release authorization configuration
         shell: bash
         if: startsWith(matrix.id, 'linux-')
-        run: |
-          test -n "$RDC_AUTH_BASE_URL" || { echo "RDC_AUTH_BASE_URL repository variable is required for a usable release build."; exit 1; }
-          test -n "$RDC_AUTH_EXECUTION_RELEASE_URL" || { echo "RDC_AUTH_EXECUTION_RELEASE_URL repository variable is required for a usable release build."; exit 1; }
-          test -n "$RDC_AUTH_PUBLIC_KEYS" || { echo "RDC_AUTH_PUBLIC_KEYS repository variable is required for a usable release build."; exit 1; }
-          test -z "${RDC_AUTH_SIGNING_KEY:-}" || { echo "The server signing key must never be present in the desktop release job."; exit 1; }
+        run: node scripts/check-release-auth-config.mjs
 
       - name: Validate release authorization configuration
         shell: pwsh
         if: matrix.id == 'windows-x64'
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:RDC_AUTH_BASE_URL)) {
-            throw "RDC_AUTH_BASE_URL repository variable is required for a usable release build."
-          }
-          if ([string]::IsNullOrWhiteSpace($env:RDC_AUTH_EXECUTION_RELEASE_URL)) {
-            throw "RDC_AUTH_EXECUTION_RELEASE_URL repository variable is required for a usable release build."
-          }
-          if ([string]::IsNullOrWhiteSpace($env:RDC_AUTH_PUBLIC_KEYS)) {
-            throw "RDC_AUTH_PUBLIC_KEYS repository variable is required for a usable release build."
-          }
-          if (-not [string]::IsNullOrWhiteSpace($env:RDC_AUTH_SIGNING_KEY)) {
-            throw "The server signing key must never be present in the desktop release job."
-          }
+        run: node scripts/check-release-auth-config.mjs
 
       - name: Run full test gate
         if: matrix.id == 'windows-x64'
         shell: pwsh
         run: |
+          node --test scripts/check-release-auth-config.test.mjs
           cargo test --locked --manifest-path authorization-service/Cargo.toml
           ./scripts/test-verify-auth-rotation.ps1
           npx tsc --noEmit
